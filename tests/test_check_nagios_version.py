@@ -34,6 +34,10 @@ class VersionCheckTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.parse_version("release-candidate")
 
+    def test_blank_line_before_installed_version_is_allowed(self):
+        output = "\nNagios Core 4.5.14\nCopyright example\n"
+        self.assertEqual(MODULE.version_from_nagios_output(output), "4.5.14")
+
 
 if __name__ == "__main__":
     unittest.main()
