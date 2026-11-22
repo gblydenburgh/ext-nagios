@@ -4,8 +4,10 @@
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
@@ -15,10 +17,45 @@ WEBHOOK_FILE = Path("/etc/nagios-secrets/discord_webhook")
 # the real sender in every message so readers know which monitor raised it.
 SOURCE_NAME = "Nagios on ext.blydenburgh.com"
 
+# This is the Discord user who should receive a pop-up for each alert. Discord
+# user IDs are public identifiers, not passwords or webhook secrets.
+MENTION_ID = "155801919133188096"
+
+# Match the colors used by the home Icinga notifications. Problems are red,
+# recoveries are green, and manual or other messages are yellow.
+COLOR_RED = 13632027
+COLOR_YELLOW = 16098851
+COLOR_GREEN = 8311585
+
+NAGIOS_DETAILS_URL = "https://ext.blydenburgh.com/nagios/cgi-bin/extinfo.cgi"
+
 
 def clean(value, limit=700):
     """Keep notification text short and safe for Discord formatting."""
     return " ".join(value.replace("`", "'").split())[:limit]
+
+
+def format_event_time():
+    """Show Nagios event time in the same simple format used by Icinga."""
+    raw_time = os.getenv("NAGIOS_SHORTDATETIME") or os.getenv(
+        "NAGIOS_LONGDATETIME", "unknown time"
+    )
+
+    # Nagios versions can export either a short numeric date or a longer date
+    # with the weekday and timezone. Try both before keeping the original text.
+    formats = (
+        "%Y-%m-%d %H:%M:%S",
+        "%m-%d-%Y %H:%M:%S",
+        "%a %b %d %H:%M:%S %Z %Y",
+    )
+    for date_format in formats:
+        try:
+            parsed_time = datetime.strptime(raw_time, date_format)
+            return parsed_time.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+
+    return clean(raw_time, 100)
 
 
 def main():
@@ -30,28 +67,45 @@ def main():
     kind = sys.argv[1]
     notification_type = clean(os.getenv("NAGIOS_NOTIFICATIONTYPE", "UNKNOWN"))
     host = clean(os.getenv("NAGIOS_HOSTNAME", "unknown"))
-    event_time = clean(os.getenv("NAGIOS_LONGDATETIME", "unknown time"))
+    address = clean(os.getenv("NAGIOS_HOSTADDRESS", "unknown"), 100)
+    event_time = format_event_time()
 
-    # Recovery messages use a green check. Other state changes use an alarm.
-    icon = "✅" if notification_type == "RECOVERY" else "🚨"
+    # Use the same color choices as Icinga so alerts look familiar at a glance.
+    color = COLOR_YELLOW
+    if notification_type == "PROBLEM":
+        color = COLOR_RED
+    elif notification_type == "RECOVERY":
+        color = COLOR_GREEN
 
     if kind == "host":
         state = clean(os.getenv("NAGIOS_HOSTSTATE", "UNKNOWN"))
         output = clean(os.getenv("NAGIOS_HOSTOUTPUT", "No check output"))
-        subject = f"Host {host} is {state}"
+        title = f"Alert: {host} is {state} ({notification_type})"
+        output_label = "Host Output"
+        details_query = urlencode({"type": "1", "host": host})
     else:
         service = clean(os.getenv("NAGIOS_SERVICEDESC", "unknown service"))
         state = clean(os.getenv("NAGIOS_SERVICESTATE", "UNKNOWN"))
         output = clean(os.getenv("NAGIOS_SERVICEOUTPUT", "No check output"))
-        subject = f"{host} / {service} is {state}"
+        title = f"Alert: {host} – {service} is {state} ({notification_type})"
+        output_label = "Service Output"
+        details_query = urlencode({"type": "2", "host": host, "service": service})
 
-    content = (
-        f"**Source:** {SOURCE_NAME}\n"
-        f"{icon} **{subject}**\n"
-        f"Notification: `{notification_type}`\n"
-        f"Time: `{event_time}`\n"
-        f"Output: {output}"
-    )
+    # Discord renders an embed as the same colored card used by Icinga. The
+    # title links to the matching host or service page in the Nagios website.
+    embed = {
+        "title": title[:256],
+        "description": f"**Address:** `{address}`",
+        "url": f"{NAGIOS_DETAILS_URL}?{details_query}",
+        "color": color,
+        "fields": [
+            {"name": output_label, "value": output},
+            {"name": "Date", "value": event_time},
+        ],
+        # The sender name already identifies Nagios. Repeat it in the footer so
+        # copied screenshots and forwarded embeds still show their source.
+        "footer": {"text": f"Source: {SOURCE_NAME}"},
+    }
 
     try:
         webhook = WEBHOOK_FILE.read_text(encoding="utf-8").strip()
@@ -70,11 +124,12 @@ def main():
 
     payload = json.dumps(
         {
-            "content": content[:1900],
-            # This label appears above the message in Discord. The Source line
-            # remains in the body in case the webhook name changes later.
+            # Mention only the intended user so Discord creates a pop-up. The
+            # allowed_mentions list prevents plugin output from pinging others.
+            "content": f"<@{MENTION_ID}>",
             "username": SOURCE_NAME,
-            "allowed_mentions": {"parse": []},
+            "embeds": [embed],
+            "allowed_mentions": {"parse": [], "users": [MENTION_ID]},
         }
     ).encode("utf-8")
 
