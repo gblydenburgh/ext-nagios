@@ -11,6 +11,10 @@ from urllib.request import Request, urlopen
 
 WEBHOOK_FILE = Path("/etc/nagios-secrets/discord_webhook")
 
+# A Discord webhook can have a broad name such as "Monitoring-Alerts." Repeat
+# the real sender in every message so readers know which monitor raised it.
+SOURCE_NAME = "Nagios on ext.blydenburgh.com"
+
 
 def clean(value, limit=700):
     """Keep notification text short and safe for Discord formatting."""
@@ -42,6 +46,7 @@ def main():
         subject = f"{host} / {service} is {state}"
 
     content = (
+        f"**Source:** {SOURCE_NAME}\n"
         f"{icon} **{subject}**\n"
         f"Notification: `{notification_type}`\n"
         f"Time: `{event_time}`\n"
@@ -66,6 +71,9 @@ def main():
     payload = json.dumps(
         {
             "content": content[:1900],
+            # This label appears above the message in Discord. The Source line
+            # remains in the body in case the webhook name changes later.
+            "username": SOURCE_NAME,
             "allowed_mentions": {"parse": []},
         }
     ).encode("utf-8")
