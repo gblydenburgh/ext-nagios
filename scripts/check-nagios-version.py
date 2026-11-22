@@ -36,11 +36,16 @@ def installed_version():
         text=True,
         timeout=10,
     )
-    first_line = result.stdout.splitlines()[0]
-    match = re.fullmatch(r"Nagios Core (\S+)", first_line.strip())
-    if not match:
-        raise ValueError("Nagios returned an unexpected version line")
-    return match.group(1)
+    return version_from_nagios_output(result.stdout)
+
+
+def version_from_nagios_output(output):
+    """Find the version line even when Nagios prints blank lines around it."""
+    for line in output.splitlines():
+        match = re.fullmatch(r"Nagios Core (\S+)", line.strip())
+        if match:
+            return match.group(1)
+    raise ValueError("Nagios returned an unexpected version line")
 
 
 def latest_version():
