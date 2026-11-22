@@ -6,12 +6,16 @@ The live checkout is `/usr/local/nagios/etc` on `ext`. Nagios reads its configur
 
 ## Discord alerts
 
-[scripts/notify-discord.py](scripts/notify-discord.py) sends host and service notifications to Discord. Every message identifies its source in two places:
+[scripts/notify-discord.py](scripts/notify-discord.py) sends host and service notifications to Discord. Its layout matches the home Icinga alerts:
 
-- The Discord sender name is `Nagios on ext.blydenburgh.com`.
-- The first line of the message says `Source: Nagios on ext.blydenburgh.com`.
+- The alert is a colored card. Problems are red, recoveries are green, and other notification types are yellow.
+- The title shows the host, optional service, current state, and notification type.
+- The address, plugin output, and date use the same field order as Icinga.
+- The title links to the matching host or service page on the Nagios website.
+- The Discord sender name and card footer identify `Nagios on ext.blydenburgh.com`.
+- The alert mentions the intended Discord user so Discord can display a pop-up.
 
-The source is repeated because a Discord webhook can be renamed. A person reading an alert should not have to guess whether it came from the home Icinga server or the external Nagios server.
+The source is repeated because a Discord webhook can be renamed and an embed can be copied without its surrounding message. A person reading an alert should not have to guess whether it came from the home Icinga server or the external Nagios server.
 
 Nagios passes notification details to the script through environment variables. [objects/discord.cfg](objects/discord.cfg) connects Nagios to the script, and [objects/templates.cfg](objects/templates.cfg) enables the commands for host and service notifications.
 
@@ -42,10 +46,11 @@ This command sends a real test message to Discord without exposing the webhook:
 sudo -u nagios env \
   NAGIOS_NOTIFICATIONTYPE=CUSTOM \
   NAGIOS_HOSTNAME=firewall \
+  NAGIOS_HOSTADDRESS=home.blydenburgh.com \
   NAGIOS_HOSTSTATE=UP \
   NAGIOS_HOSTOUTPUT='Manual notification test from ext.blydenburgh.com' \
   NAGIOS_LONGDATETIME="$(date -u '+%a %b %d %H:%M:%S UTC %Y')" \
   /usr/local/nagios/etc/scripts/notify-discord.py host
 ```
 
-The Discord sender and the message's first line should both identify `Nagios on ext.blydenburgh.com`.
+The message should mention the intended Discord user and display a yellow card. The sender name and card footer should both identify `Nagios on ext.blydenburgh.com`.
