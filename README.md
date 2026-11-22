@@ -21,6 +21,16 @@ Nagios passes notification details to the script through environment variables. 
 
 The Discord webhook is stored only in `/etc/nagios-secrets/discord_webhook`. It must be readable by the `nagios` account and must never be committed to this repository.
 
+## Nagios version alerts
+
+[scripts/check-nagios-version.py](scripts/check-nagios-version.py) checks once per day for a newer stable Nagios Core release. It reads the installed version from the local Nagios program and reads the latest release from the official Nagios Core GitHub project.
+
+- `OK` means this server has the latest stable release.
+- `WARNING` means a newer stable release is available.
+- `UNKNOWN` means the installed version or official release could not be read.
+
+The check does not download or install an update. It only creates a normal Nagios service alert, which uses the existing Discord notification process. The GitHub request does not need a token because it runs only once per day.
+
 ## Validate a change
 
 Compile the Python script and ask Nagios to check the full configuration before reloading the service:
@@ -28,10 +38,11 @@ Compile the Python script and ask Nagios to check the full configuration before 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -c \
   'compile(open("scripts/notify-discord.py", "rb").read(), "scripts/notify-discord.py", "exec")'
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 sudo /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
 ```
 
-The first command checks the Python syntax without leaving an `__pycache__` directory. The Nagios check must end with zero errors. After updating the live checkout, reload Nagios and confirm it remains active:
+The first command checks the notification script without leaving an `__pycache__` directory. The second command tests the version comparison without contacting GitHub. The Nagios check must end with zero errors. After updating the live checkout, reload Nagios and confirm it remains active:
 
 ```sh
 sudo systemctl reload nagios
